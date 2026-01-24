@@ -6,6 +6,7 @@ import { RiskBadge } from '@/components/RiskBadge';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 import {
   AlertTriangle,
   Brain,
@@ -19,6 +20,7 @@ import {
   Camera,
   Activity,
   Clock,
+  Sparkles,
 } from 'lucide-react';
 import {
   LineChart,
@@ -28,31 +30,38 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
 } from 'recharts';
 import type { PatientAssessment, RiskAssessment, CareRecommendation, MediaAnalysis, TemporalDataPoint } from '@/types/patient';
 import {
   calculateRiskScore,
-  analyzeMedia,
   generateCareRecommendations,
   generateExplanation,
   generateTemporalData,
 } from '@/lib/mockAI';
+import { analyzeEyeImage, convertAIResultToMediaAnalysis } from '@/lib/aiImageAnalysis';
 
 export default function AssessmentResults() {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Initializing analysis...');
   const [assessment, setAssessment] = useState<Partial<PatientAssessment> | null>(null);
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null);
   const [mediaAnalysis, setMediaAnalysis] = useState<MediaAnalysis | null>(null);
+  const [aiAnalysisDetails, setAiAnalysisDetails] = useState<{
+    clinicalSummary?: string;
+    urgencyLevel?: string;
+    confidenceLevel?: number;
+    cornealClarityScore?: number;
+    woundIntegrityScore?: number;
+  } | null>(null);
   const [recommendations, setRecommendations] = useState<CareRecommendation[]>([]);
   const [temporalData, setTemporalData] = useState<TemporalDataPoint[]>([]);
   const [isSimplifiedView, setIsSimplifiedView] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [humanConfirmed, setHumanConfirmed] = useState(false);
+  const [isAIAnalysis, setIsAIAnalysis] = useState(false);
 
-  const processAssessment = useCallback(() => {
+  const processAssessment = useCallback(async () => {
     const storedData = sessionStorage.getItem('patientAssessment');
     const storedImage = sessionStorage.getItem('uploadedImage');
     
@@ -65,27 +74,60 @@ export default function AssessmentResults() {
     setAssessment(data);
     setUploadedImage(storedImage || null);
 
-    // Simulate AI processing delay
-    setTimeout(() => {
-      // Generate media analysis if image was uploaded
-      const media = storedImage ? analyzeMedia() : null;
-      setMediaAnalysis(media);
+    let media: MediaAnalysis | null = null;
 
-      // Calculate risk with media data
-      const dataWithMedia = media ? { ...data, mediaAnalysis: media } : data;
-      const risk = calculateRiskScore(dataWithMedia);
-      setRiskAssessment(risk);
+    // If there's an image, use real AI analysis
+    if (storedImage && storedImage.length > 0) {
+      try {
+        setLoadingMessage('Sending image to AI for visual analysis...');
+        setIsAIAnalysis(true);
+        
+        const aiResult = await analyzeEyeImage(storedImage);
+        
+        setLoadingMessage('Processing AI analysis results...');
+        
+        media = convertAIResultToMediaAnalysis(aiResult);
+        setMediaAnalysis(media);
+        
+        // Store additional AI details
+        setAiAnalysisDetails({
+          clinicalSummary: aiResult.clinicalSummary,
+          urgencyLevel: aiResult.urgencyLevel,
+          confidenceLevel: aiResult.confidenceLevel,
+          cornealClarityScore: aiResult.cornealClarityScore,
+          woundIntegrityScore: aiResult.woundIntegrityScore,
+        });
 
-      // Generate recommendations
-      const recs = generateCareRecommendations(dataWithMedia, risk);
-      setRecommendations(recs);
+        toast.success('AI image analysis complete', {
+          description: `Confidence: ${aiResult.confidenceLevel}%`,
+        });
+      } catch (error) {
+        console.error('AI analysis failed:', error);
+        toast.error('AI analysis failed', {
+          description: error instanceof Error ? error.message : 'Using fallback analysis',
+        });
+        // Continue without media analysis
+        media = null;
+        setIsAIAnalysis(false);
+      }
+    }
 
-      // Generate temporal data
-      const temporal = generateTemporalData(risk.overallRiskScore);
-      setTemporalData(temporal);
+    setLoadingMessage('Calculating risk assessment...');
 
-      setIsLoading(false);
-    }, 2000);
+    // Calculate risk with media data
+    const dataWithMedia = media ? { ...data, mediaAnalysis: media } : data;
+    const risk = calculateRiskScore(dataWithMedia);
+    setRiskAssessment(risk);
+
+    // Generate recommendations
+    const recs = generateCareRecommendations(dataWithMedia, risk);
+    setRecommendations(recs);
+
+    // Generate temporal data
+    const temporal = generateTemporalData(risk.overallRiskScore);
+    setTemporalData(temporal);
+
+    setIsLoading(false);
   }, [navigate]);
 
   useEffect(() => {
@@ -123,7 +165,7 @@ export default function AssessmentResults() {
           </p>
           <div className="max-w-xs mx-auto space-y-2">
             <Progress value={66} className="h-2" />
-            <p className="text-sm text-muted-foreground">Processing clinical indicators...</p>
+            <p className="text-sm text-muted-foreground">{loadingMessage}</p>
           </div>
         </div>
       </div>
@@ -245,10 +287,34 @@ export default function AssessmentResults() {
       {/* Media Analysis */}
       {mediaAnalysis && uploadedImage && (
         <MedicalCard
-          title="Visual AI Analysis"
+          title={isAIAnalysis ? "AI-Powered Visual Analysis" : "Visual AI Analysis"}
+          subtitle={isAIAnalysis ? "Analyzed by Lovable AI (Gemini Vision)" : undefined}
           icon={<Camera className="w-5 h-5" />}
           className="mb-8"
         >
+          {isAIAnalysis && (
+            <div className="flex items-center gap-2 mb-4 text-sm text-primary">
+              <Sparkles className="w-4 h-4" />
+              <span className="font-medium">Real-time AI Analysis</span>
+              {aiAnalysisDetails?.confidenceLevel && (
+                <span className="text-muted-foreground">
+                  • Confidence: {aiAnalysisDetails.confidenceLevel}%
+                </span>
+              )}
+              {aiAnalysisDetails?.urgencyLevel && (
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                  aiAnalysisDetails.urgencyLevel === 'urgent' 
+                    ? 'bg-destructive/10 text-destructive'
+                    : aiAnalysisDetails.urgencyLevel === 'important'
+                    ? 'bg-warning/10 text-warning'
+                    : 'bg-success/10 text-success'
+                }`}>
+                  {aiAnalysisDetails.urgencyLevel.toUpperCase()}
+                </span>
+              )}
+            </div>
+          )}
+          
           <div className="grid md:grid-cols-2 gap-6">
             <div>
               <img
@@ -271,9 +337,22 @@ export default function AssessmentResults() {
                 ))}
               </div>
               
+              {aiAnalysisDetails?.cornealClarityScore !== undefined && aiAnalysisDetails?.woundIntegrityScore !== undefined && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-3 bg-secondary rounded-lg">
+                    <p className="text-2xl font-bold text-foreground">{aiAnalysisDetails.cornealClarityScore}%</p>
+                    <p className="text-xs text-muted-foreground">Corneal Clarity</p>
+                  </div>
+                  <div className="text-center p-3 bg-secondary rounded-lg">
+                    <p className="text-2xl font-bold text-foreground">{aiAnalysisDetails.woundIntegrityScore}%</p>
+                    <p className="text-xs text-muted-foreground">Wound Integrity</p>
+                  </div>
+                </div>
+              )}
+              
               {mediaAnalysis.abnormalCues.length > 0 && (
                 <div className="space-y-2">
-                  <h4 className="text-sm font-medium text-foreground">Detected Findings:</h4>
+                  <h4 className="text-sm font-medium text-foreground">AI Detected Findings:</h4>
                   <ul className="space-y-1">
                     {mediaAnalysis.abnormalCues.map((cue, i) => (
                       <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
@@ -286,6 +365,13 @@ export default function AssessmentResults() {
               )}
             </div>
           </div>
+          
+          {aiAnalysisDetails?.clinicalSummary && (
+            <div className="mt-6 p-4 bg-secondary/50 rounded-lg">
+              <h4 className="text-sm font-medium text-foreground mb-2">AI Clinical Summary</h4>
+              <p className="text-sm text-muted-foreground">{aiAnalysisDetails.clinicalSummary}</p>
+            </div>
+          )}
         </MedicalCard>
       )}
 
