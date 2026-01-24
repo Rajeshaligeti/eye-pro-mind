@@ -1,0 +1,5 @@
+project_id = "mpdmnzhxnrahjmjssfjq"
+
+[functions.analyze-eye-image]
+enabled = true
+verify_jwt = false
