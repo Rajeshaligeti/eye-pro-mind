@@ -6,6 +6,8 @@ import { RiskBadge } from '@/components/RiskBadge';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
@@ -21,6 +23,7 @@ import {
   Activity,
   Clock,
   Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   LineChart,
@@ -60,6 +63,7 @@ export default function AssessmentResults() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [humanConfirmed, setHumanConfirmed] = useState(false);
   const [isAIAnalysis, setIsAIAnalysis] = useState(false);
+  const [doctorOverride, setDoctorOverride] = useState<'accept' | 'increase' | 'decrease'>('accept');
 
   const processAssessment = useCallback(async () => {
     const storedData = sessionStorage.getItem('patientAssessment');
@@ -76,7 +80,6 @@ export default function AssessmentResults() {
 
     let media: MediaAnalysis | null = null;
 
-    // If there's an image, use real AI analysis
     if (storedImage && storedImage.length > 0) {
       try {
         setLoadingMessage('Sending image to AI for visual analysis...');
@@ -89,7 +92,6 @@ export default function AssessmentResults() {
         media = convertAIResultToMediaAnalysis(aiResult);
         setMediaAnalysis(media);
         
-        // Store additional AI details
         setAiAnalysisDetails({
           clinicalSummary: aiResult.clinicalSummary,
           urgencyLevel: aiResult.urgencyLevel,
@@ -106,7 +108,6 @@ export default function AssessmentResults() {
         toast.error('AI analysis failed', {
           description: error instanceof Error ? error.message : 'Using fallback analysis',
         });
-        // Continue without media analysis
         media = null;
         setIsAIAnalysis(false);
       }
@@ -114,16 +115,13 @@ export default function AssessmentResults() {
 
     setLoadingMessage('Calculating risk assessment...');
 
-    // Calculate risk with media data
     const dataWithMedia = media ? { ...data, mediaAnalysis: media } : data;
     const risk = calculateRiskScore(dataWithMedia);
     setRiskAssessment(risk);
 
-    // Generate recommendations
     const recs = generateCareRecommendations(dataWithMedia, risk);
     setRecommendations(recs);
 
-    // Generate temporal data
     const temporal = generateTemporalData(risk.overallRiskScore);
     setTemporalData(temporal);
 
@@ -134,6 +132,22 @@ export default function AssessmentResults() {
     processAssessment();
   }, [processAssessment]);
 
+  // Recalculate when doctor override changes
+  useEffect(() => {
+    if (!assessment || isLoading) return;
+
+    const dataWithOverride = { ...assessment, doctorRiskOverride: doctorOverride };
+    if (mediaAnalysis) {
+      dataWithOverride.mediaAnalysis = mediaAnalysis;
+    }
+    const risk = calculateRiskScore(dataWithOverride);
+    setRiskAssessment(risk);
+    const recs = generateCareRecommendations(dataWithOverride, risk);
+    setRecommendations(recs);
+    const temporal = generateTemporalData(risk.overallRiskScore);
+    setTemporalData(temporal);
+  }, [doctorOverride]);
+
   const handleExport = () => {
     const reportData = {
       timestamp: new Date().toISOString(),
@@ -142,6 +156,7 @@ export default function AssessmentResults() {
       mediaAnalysis,
       recommendations,
       humanConfirmed,
+      doctorOverride,
     };
     
     const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
@@ -175,6 +190,12 @@ export default function AssessmentResults() {
   if (!riskAssessment) return null;
 
   const explanation = generateExplanation(riskAssessment, isSimplifiedView);
+
+  const followUpPriorityColors: Record<string, string> = {
+    routine: 'bg-success/10 text-success border-success/30',
+    early: 'bg-warning/10 text-warning border-warning/30',
+    urgent: 'bg-destructive/10 text-destructive border-destructive/30',
+  };
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -228,12 +249,22 @@ export default function AssessmentResults() {
             </div>
             
             <div className="flex-1 space-y-4">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <RiskBadge level={riskAssessment.riskCategory} size="lg" />
+                <Badge variant="outline" className={`${followUpPriorityColors[riskAssessment.followUpPriority]} border`}>
+                  Follow-up: {riskAssessment.followUpPriority.charAt(0).toUpperCase() + riskAssessment.followUpPriority.slice(1)}
+                </Badge>
                 <span className="text-sm text-muted-foreground">
                   Confidence: {riskAssessment.confidenceLevel}%
                 </span>
               </div>
+              
+              {riskAssessment.doctorOverrideApplied && (
+                <div className="p-2 bg-primary/10 border border-primary/30 rounded-lg text-sm text-primary flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4" />
+                  Doctor override applied: risk {doctorOverride === 'increase' ? 'increased' : 'decreased'}
+                </div>
+              )}
               
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -283,6 +314,38 @@ export default function AssessmentResults() {
           </div>
         </MedicalCard>
       </div>
+
+      {/* Doctor Risk Override */}
+      <MedicalCard
+        title="Doctor Risk Override"
+        icon={<ShieldCheck className="w-5 h-5" />}
+        className="mb-8"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            As the attending physician, you may override the AI risk assessment. Your clinical judgment always takes precedence.
+          </p>
+          <RadioGroup
+            value={doctorOverride}
+            onValueChange={(v) => setDoctorOverride(v as 'accept' | 'increase' | 'decrease')}
+            className="flex flex-wrap gap-6"
+          >
+            {[
+              { value: 'accept', label: 'Accept AI Score' },
+              { value: 'increase', label: 'Increase Risk' },
+              { value: 'decrease', label: 'Decrease Risk' },
+            ].map(({ value, label }) => (
+              <div key={value} className="flex items-center space-x-2">
+                <RadioGroupItem value={value} id={`override-${value}`} />
+                <Label htmlFor={`override-${value}`}>{label}</Label>
+              </div>
+            ))}
+          </RadioGroup>
+          <p className="text-xs text-muted-foreground italic">
+            This system assists clinical decision-making and does not replace physician judgment.
+          </p>
+        </div>
+      </MedicalCard>
 
       {/* Media Analysis */}
       {mediaAnalysis && uploadedImage && (
