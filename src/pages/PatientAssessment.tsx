@@ -658,6 +658,50 @@ export default function PatientAssessment() {
       case 6: // Media Upload
         return (
           <div className="space-y-6">
+            {/* Compliance & Follow-Up Trend */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-secondary/30 rounded-lg">
+              <div className="space-y-3">
+                <Label className="font-medium">Patient Compliance Score</Label>
+                <RadioGroup
+                  value={formData.complianceScore}
+                  onValueChange={(v) =>
+                    setFormData((prev) => ({ ...prev, complianceScore: v as 'good' | 'moderate' | 'poor' }))
+                  }
+                  className="flex flex-wrap gap-4"
+                >
+                  {(['good', 'moderate', 'poor'] as const).map((level) => (
+                    <div key={level} className="flex items-center space-x-2">
+                      <RadioGroupItem value={level} id={`compliance-${level}`} />
+                      <Label htmlFor={`compliance-${level}`} className="capitalize">{level}</Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+                {formData.complianceScore === 'poor' && (
+                  <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
+                    ⚠️ Low compliance can worsen outcomes even in otherwise low-risk patients.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <Label className="font-medium">Follow-Up Trend</Label>
+                <RadioGroup
+                  value={formData.followUpTrend}
+                  onValueChange={(v) =>
+                    setFormData((prev) => ({ ...prev, followUpTrend: v as 'improving' | 'stable' | 'worsening' }))
+                  }
+                  className="flex flex-wrap gap-4"
+                >
+                  {(['improving', 'stable', 'worsening'] as const).map((trend) => (
+                    <div key={trend} className="flex items-center space-x-2">
+                      <RadioGroupItem value={trend} id={`trend-${trend}`} />
+                      <Label htmlFor={`trend-${trend}`} className="capitalize">{trend}</Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+            </div>
+
             <p className="text-muted-foreground">
               Upload post-operative eye images for AI visual analysis. The system will analyze
               for signs of redness, edema, discharge patterns, and other visual abnormalities.
