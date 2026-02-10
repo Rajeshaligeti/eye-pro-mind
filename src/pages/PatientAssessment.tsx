@@ -580,6 +580,77 @@ export default function PatientAssessment() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label>Inflammation Grade (AC Cells & Flare)</Label>
+                <Select
+                  value={formData.clinicalMeasurements?.inflammationGrade}
+                  onValueChange={(v) => updateFormData('clinicalMeasurements', 'inflammationGrade', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Grade 0</SelectItem>
+                    <SelectItem value="1+">Grade 1+</SelectItem>
+                    <SelectItem value="2+">Grade 2+</SelectItem>
+                    <SelectItem value="3+">Grade 3+</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Corneal Edema Severity</Label>
+                <Select
+                  value={formData.clinicalMeasurements?.cornealEdemaSeverity}
+                  onValueChange={(v) => updateFormData('clinicalMeasurements', 'cornealEdemaSeverity', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="mild">Mild</SelectItem>
+                    <SelectItem value="moderate">Moderate</SelectItem>
+                    <SelectItem value="severe">Severe</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label>Time Since Surgery</Label>
+                <div className="flex gap-3">
+                  <Input
+                    type="number"
+                    value={formData.timeSinceSurgery?.value}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        timeSinceSurgery: { ...prev.timeSinceSurgery!, value: parseInt(e.target.value) || 0 },
+                      }))
+                    }
+                    min={0}
+                    className="flex-1"
+                  />
+                  <Select
+                    value={formData.timeSinceSurgery?.unit}
+                    onValueChange={(v) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        timeSinceSurgery: { ...prev.timeSinceSurgery!, unit: v as 'hours' | 'days' },
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hours">Hours</SelectItem>
+                      <SelectItem value="days">Days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
           </div>
         );
