@@ -27,7 +27,7 @@ export interface SurgeryDetails {
   complexity: 'routine' | 'moderate' | 'complex';
   duration: number;
   surgeonExperience: 'junior' | 'experienced' | 'expert';
-  intraoperativeIssues: boolean;
+  intraoperativeComplicationType: 'none' | 'posterior-capsule-rupture' | 'zonular-weakness' | 'vitreous-loss';
 }
 
 export interface PostOperativeSymptoms {
@@ -44,6 +44,8 @@ export interface ClinicalMeasurements {
   cornealClarity: 'clear' | 'mild-haze' | 'moderate-haze' | 'opaque';
   woundIntegrity: 'intact' | 'minor-issue' | 'concern';
   anteriorChamberReaction: 'none' | 'trace' | 'mild' | 'moderate' | 'severe';
+  inflammationGrade: '0' | '1+' | '2+' | '3+';
+  cornealEdemaSeverity: 'none' | 'mild' | 'moderate' | 'severe';
 }
 
 export interface MediaAnalysis {
@@ -62,6 +64,9 @@ export interface RiskAssessment {
   behavioralContribution: number;
   mediaContribution: number;
   topRiskFactors: { factor: string; contribution: number; }[];
+  followUpPriority: 'routine' | 'early' | 'urgent';
+  doctorOverrideApplied: boolean;
+  explanationNotes: string[];
 }
 
 export interface CareRecommendation {
@@ -83,6 +88,10 @@ export interface PatientAssessment {
   mediaAnalysis?: MediaAnalysis;
   riskAssessment?: RiskAssessment;
   careRecommendations?: CareRecommendation[];
+  complianceScore: 'good' | 'moderate' | 'poor';
+  timeSinceSurgery: { value: number; unit: 'hours' | 'days' };
+  followUpTrend: 'improving' | 'stable' | 'worsening';
+  doctorRiskOverride: 'increase' | 'decrease' | 'accept';
 }
 
 export interface TemporalDataPoint {

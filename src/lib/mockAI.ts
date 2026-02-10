@@ -6,11 +6,30 @@ import type {
   TemporalDataPoint,
 } from '@/types/patient';
 
+// Helper: get hours since surgery
+function getHoursSinceSurgery(assessment: Partial<PatientAssessment>): number {
+  const ts = assessment.timeSinceSurgery;
+  if (!ts) return 48; // default: 2 days
+  return ts.unit === 'hours' ? ts.value : ts.value * 24;
+}
+
+// Temporal multiplier for symptom/inflammation scores
+function getTemporalMultiplier(hoursSinceSurgery: number): number {
+  if (hoursSinceSurgery < 24) return 0.7; // early findings expected
+  if (hoursSinceSurgery <= 72) return 1.0; // standard
+  if (hoursSinceSurgery > 168) return 1.2; // >7 days, persistent = worse
+  return 1.0;
+}
+
 // Simulated AI risk calculation
 export function calculateRiskScore(assessment: Partial<PatientAssessment>): RiskAssessment {
   let clinicalScore = 0;
   let behavioralScore = 0;
   const riskFactors: { factor: string; contribution: number }[] = [];
+  const explanationNotes: string[] = [];
+
+  const hoursSinceSurgery = getHoursSinceSurgery(assessment);
+  const temporalMultiplier = getTemporalMultiplier(hoursSinceSurgery);
 
   // Demographics scoring
   if (assessment.demographics) {
@@ -65,40 +84,52 @@ export function calculateRiskScore(assessment: Partial<PatientAssessment>): Risk
     }
   }
 
-  // Surgery details scoring
+  // Surgery details scoring — typed intraoperative complications
   if (assessment.surgeryDetails) {
-    const { complexity, intraoperativeIssues, surgeonExperience } = assessment.surgeryDetails;
+    const { complexity, intraoperativeComplicationType, surgeonExperience } = assessment.surgeryDetails;
     if (complexity === 'complex') {
       clinicalScore += 15;
       riskFactors.push({ factor: 'Complex surgical procedure', contribution: 15 });
     }
-    if (intraoperativeIssues) {
-      clinicalScore += 20;
-      riskFactors.push({ factor: 'Intraoperative complications', contribution: 20 });
+
+    const complicationScores: Record<string, { score: number; label: string }> = {
+      'posterior-capsule-rupture': { score: 22, label: 'Posterior capsule rupture' },
+      'vitreous-loss': { score: 25, label: 'Vitreous loss during surgery' },
+      'zonular-weakness': { score: 15, label: 'Zonular weakness' },
+    };
+    const comp = complicationScores[intraoperativeComplicationType || 'none'];
+    if (comp) {
+      clinicalScore += comp.score;
+      riskFactors.push({ factor: comp.label, contribution: comp.score });
     }
+
     if (surgeonExperience === 'junior') {
       clinicalScore += 5;
       riskFactors.push({ factor: 'Junior surgeon', contribution: 5 });
     }
   }
 
-  // Post-operative symptoms scoring
+  // Post-operative symptoms scoring (with temporal adjustment)
   if (assessment.postOperativeSymptoms) {
     const { painLevel, rednessLevel, swellingLevel, visualBlur, discharge } = assessment.postOperativeSymptoms;
     if (painLevel > 7) {
-      clinicalScore += 15;
-      riskFactors.push({ factor: 'Severe post-operative pain', contribution: 15 });
+      const pts = Math.round(15 * temporalMultiplier);
+      clinicalScore += pts;
+      riskFactors.push({ factor: 'Severe post-operative pain', contribution: pts });
     } else if (painLevel > 4) {
-      clinicalScore += 8;
-      riskFactors.push({ factor: 'Moderate post-operative pain', contribution: 8 });
+      const pts = Math.round(8 * temporalMultiplier);
+      clinicalScore += pts;
+      riskFactors.push({ factor: 'Moderate post-operative pain', contribution: pts });
     }
     if (rednessLevel > 6) {
-      clinicalScore += 12;
-      riskFactors.push({ factor: 'Significant ocular redness', contribution: 12 });
+      const pts = Math.round(12 * temporalMultiplier);
+      clinicalScore += pts;
+      riskFactors.push({ factor: 'Significant ocular redness', contribution: pts });
     }
     if (swellingLevel > 6) {
-      clinicalScore += 10;
-      riskFactors.push({ factor: 'Notable periocular swelling', contribution: 10 });
+      const pts = Math.round(10 * temporalMultiplier);
+      clinicalScore += pts;
+      riskFactors.push({ factor: 'Notable periocular swelling', contribution: pts });
     }
     if (visualBlur) {
       clinicalScore += 8;
@@ -112,7 +143,7 @@ export function calculateRiskScore(assessment: Partial<PatientAssessment>): Risk
 
   // Clinical measurements scoring
   if (assessment.clinicalMeasurements) {
-    const { intraocularPressure, cornealClarity, woundIntegrity, anteriorChamberReaction } = assessment.clinicalMeasurements;
+    const { intraocularPressure, cornealClarity, woundIntegrity, anteriorChamberReaction, inflammationGrade, cornealEdemaSeverity } = assessment.clinicalMeasurements;
     if (intraocularPressure > 25) {
       clinicalScore += 18;
       riskFactors.push({ factor: 'Elevated intraocular pressure', contribution: 18 });
@@ -132,6 +163,22 @@ export function calculateRiskScore(assessment: Partial<PatientAssessment>): Risk
       clinicalScore += 15;
       riskFactors.push({ factor: 'Significant anterior chamber reaction', contribution: 15 });
     }
+
+    // Inflammation grading (with temporal adjustment)
+    const inflammationScores: Record<string, number> = { '0': 0, '1+': 5, '2+': 12, '3+': 22 };
+    const inflScore = Math.round((inflammationScores[inflammationGrade || '0'] || 0) * temporalMultiplier);
+    if (inflScore > 0) {
+      clinicalScore += inflScore;
+      riskFactors.push({ factor: `Inflammation grade ${inflammationGrade}`, contribution: inflScore });
+    }
+
+    // Corneal edema severity
+    const edemaScores: Record<string, number> = { 'none': 0, 'mild': 4, 'moderate': 12, 'severe': 20 };
+    const edemaScore = edemaScores[cornealEdemaSeverity || 'none'] || 0;
+    if (edemaScore > 0) {
+      clinicalScore += edemaScore;
+      riskFactors.push({ factor: `Corneal edema (${cornealEdemaSeverity})`, contribution: edemaScore });
+    }
   }
 
   // Media analysis contribution
@@ -140,22 +187,66 @@ export function calculateRiskScore(assessment: Partial<PatientAssessment>): Risk
     riskFactors.push({ factor: 'Visual AI detected abnormalities', contribution: mediaContribution * 0.3 });
   }
 
-  // Calculate total
-  const totalScore = Math.min(100, clinicalScore + behavioralScore + mediaContribution * 0.3);
-  
+  // Calculate base total
+  let totalScore = clinicalScore + behavioralScore + mediaContribution * 0.3;
+
+  // Follow-up trend escalation
+  const trend = assessment.followUpTrend || 'stable';
+  if (trend === 'improving') {
+    totalScore -= 5;
+  } else if (trend === 'worsening') {
+    totalScore += 12;
+    riskFactors.push({ factor: 'Worsening follow-up trend', contribution: 12 });
+  }
+
+  // Compliance multiplier
+  const compliance = assessment.complianceScore || 'good';
+  const complianceMultipliers: Record<string, number> = { good: 1.0, moderate: 1.15, poor: 1.35 };
+  totalScore *= complianceMultipliers[compliance];
+  if (compliance === 'poor') {
+    riskFactors.push({ factor: 'Poor patient compliance', contribution: Math.round(totalScore * 0.35) });
+    explanationNotes.push('Low compliance can worsen outcomes even in otherwise low-risk patients.');
+  }
+
+  // Temporal context note
+  const tsDisplay = assessment.timeSinceSurgery
+    ? `${assessment.timeSinceSurgery.value} ${assessment.timeSinceSurgery.unit}`
+    : '2 days';
+  explanationNotes.push(`Findings interpreted in context of ${tsDisplay} post-surgery.`);
+
+  // Doctor override
+  const override = assessment.doctorRiskOverride || 'accept';
+  let doctorOverrideApplied = false;
+  if (override === 'increase') {
+    totalScore *= 1.25;
+    doctorOverrideApplied = true;
+    explanationNotes.push('Doctor override applied: risk increased.');
+  } else if (override === 'decrease') {
+    totalScore *= 0.75;
+    doctorOverrideApplied = true;
+    explanationNotes.push('Doctor override applied: risk decreased.');
+  }
+
+  totalScore = Math.max(5, Math.min(100, totalScore));
+
   // Sort and get top factors
   const topFactors = riskFactors
     .sort((a, b) => b.contribution - a.contribution)
     .slice(0, 5);
 
+  const finalScore = Math.round(totalScore);
+
   return {
-    overallRiskScore: Math.round(totalScore),
-    riskCategory: totalScore < 30 ? 'low' : totalScore < 60 ? 'medium' : 'high',
+    overallRiskScore: finalScore,
+    riskCategory: finalScore < 30 ? 'low' : finalScore < 60 ? 'medium' : 'high',
     confidenceLevel: Math.round(75 + Math.random() * 20),
     clinicalContribution: Math.round(clinicalScore),
     behavioralContribution: Math.round(behavioralScore),
     mediaContribution: Math.round(mediaContribution * 0.3),
     topRiskFactors: topFactors,
+    followUpPriority: finalScore < 30 ? 'routine' : finalScore < 60 ? 'early' : 'urgent',
+    doctorOverrideApplied,
+    explanationNotes,
   };
 }
 
@@ -241,6 +332,38 @@ export function generateCareRecommendations(
     }
   });
 
+  // Compliance-specific recommendation
+  if (assessment.complianceScore === 'poor') {
+    recommendations.push({
+      category: 'Compliance Support',
+      recommendation: 'Implement structured medication reminders and simplified drop regimen. Consider caregiver involvement.',
+      rationale: 'Poor compliance significantly increases complication risk and requires proactive intervention.',
+      priority: 'urgent',
+    });
+  }
+
+  // Corneal edema recommendation
+  const edemaSeverity = assessment.clinicalMeasurements?.cornealEdemaSeverity;
+  if (edemaSeverity === 'moderate' || edemaSeverity === 'severe') {
+    recommendations.push({
+      category: 'Corneal Edema Management',
+      recommendation: 'Initiate hypertonic saline drops (5% NaCl) and consider topical corticosteroid to reduce corneal swelling.',
+      rationale: `${edemaSeverity === 'severe' ? 'Severe' : 'Moderate'} corneal edema may delay visual recovery and requires active management.`,
+      priority: edemaSeverity === 'severe' ? 'urgent' : 'important',
+    });
+  }
+
+  // Inflammation-specific recommendation
+  const inflGrade = assessment.clinicalMeasurements?.inflammationGrade;
+  if (inflGrade === '2+' || inflGrade === '3+') {
+    recommendations.push({
+      category: 'Inflammation Control',
+      recommendation: `Intensify topical corticosteroid regimen for grade ${inflGrade} anterior chamber inflammation. Consider hourly dosing.`,
+      rationale: 'Significant post-operative inflammation requires aggressive anti-inflammatory therapy to prevent complications.',
+      priority: inflGrade === '3+' ? 'urgent' : 'important',
+    });
+  }
+
   // General supportive care
   recommendations.push({
     category: 'Lubricating Therapy',
@@ -263,7 +386,7 @@ export function generateCareRecommendations(
 
 // Generate natural language explanation
 export function generateExplanation(riskAssessment: RiskAssessment, isSimplified: boolean): string {
-  const { riskCategory, overallRiskScore, topRiskFactors } = riskAssessment;
+  const { riskCategory, overallRiskScore, topRiskFactors, explanationNotes, doctorOverrideApplied } = riskAssessment;
   
   if (isSimplified) {
     const riskText = riskCategory === 'high' 
@@ -274,13 +397,19 @@ export function generateExplanation(riskAssessment: RiskAssessment, isSimplified
     
     const mainFactors = topRiskFactors.slice(0, 3).map(f => f.factor.toLowerCase()).join(', ');
     
-    return `This patient has a ${riskText} chance of developing complications after surgery. The main concerns are: ${mainFactors}. ${riskCategory === 'high' ? 'Close monitoring and preventive measures are recommended.' : 'Standard follow-up care is advised.'}`;
+    let text = `This patient has a ${riskText} chance of developing complications after surgery. The main concerns are: ${mainFactors}. ${riskCategory === 'high' ? 'Close monitoring and preventive measures are recommended.' : 'Standard follow-up care is advised.'}`;
+
+    if (explanationNotes?.length) {
+      text += '\n\n' + explanationNotes.join(' ');
+    }
+
+    return text;
   }
   
   let explanation = `Based on multimodal analysis integrating clinical parameters, behavioral risk factors, and visual assessment data, this patient demonstrates a ${riskCategory}-risk profile with an aggregate complication probability of ${overallRiskScore}%.\n\n`;
   
   explanation += `Primary Risk Contributors:\n`;
-  topRiskFactors.forEach((factor, index) => {
+  topRiskFactors.slice(0, 3).forEach((factor, index) => {
     explanation += `${index + 1}. ${factor.factor} (${factor.contribution.toFixed(1)}% contribution)\n`;
   });
   
@@ -293,6 +422,10 @@ export function generateExplanation(riskAssessment: RiskAssessment, isSimplified
   } else {
     explanation += `Standard post-operative care protocols are appropriate for this risk profile.`;
   }
+
+  if (explanationNotes?.length) {
+    explanation += '\n\n' + explanationNotes.join('\n');
+  }
   
   return explanation;
 }
@@ -303,7 +436,6 @@ export function generateTemporalData(baseRiskScore: number): TemporalDataPoint[]
   let currentRisk = baseRiskScore;
   
   [0, 1, 3, 7, 14].forEach((day) => {
-    // Risk generally decreases over time with proper care
     const modifier = day === 0 ? 1 : day === 1 ? 0.95 : day === 3 ? 0.85 : day === 7 ? 0.7 : 0.5;
     const variance = (Math.random() - 0.5) * 10;
     const riskScore = Math.max(5, Math.min(95, currentRisk * modifier + variance));

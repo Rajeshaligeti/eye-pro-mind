@@ -72,7 +72,7 @@ export default function PatientAssessment() {
       complexity: 'routine',
       duration: 30,
       surgeonExperience: 'experienced',
-      intraoperativeIssues: false,
+      intraoperativeComplicationType: 'none',
     },
     postOperativeSymptoms: {
       painLevel: 2,
@@ -87,7 +87,13 @@ export default function PatientAssessment() {
       cornealClarity: 'clear',
       woundIntegrity: 'intact',
       anteriorChamberReaction: 'trace',
+      inflammationGrade: '0',
+      cornealEdemaSeverity: 'none',
     },
+    complianceScore: 'good',
+    timeSinceSurgery: { value: 1, unit: 'days' },
+    followUpTrend: 'stable',
+    doctorRiskOverride: 'accept',
   });
 
   const updateFormData = (section: string, field: string, value: unknown) => {
@@ -427,17 +433,22 @@ export default function PatientAssessment() {
               </div>
             </div>
             
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="intraoperativeIssues"
-                checked={formData.surgeryDetails?.intraoperativeIssues}
-                onCheckedChange={(checked) =>
-                  updateFormData('surgeryDetails', 'intraoperativeIssues', checked)
-                }
-              />
-              <Label htmlFor="intraoperativeIssues">
-                Intraoperative Issues Encountered
-              </Label>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Intraoperative Complication Type</Label>
+              <Select
+                value={formData.surgeryDetails?.intraoperativeComplicationType}
+                onValueChange={(v) => updateFormData('surgeryDetails', 'intraoperativeComplicationType', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="posterior-capsule-rupture">Posterior Capsule Rupture</SelectItem>
+                  <SelectItem value="zonular-weakness">Zonular Weakness</SelectItem>
+                  <SelectItem value="vitreous-loss">Vitreous Loss</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         );
@@ -569,6 +580,77 @@ export default function PatientAssessment() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label>Inflammation Grade (AC Cells & Flare)</Label>
+                <Select
+                  value={formData.clinicalMeasurements?.inflammationGrade}
+                  onValueChange={(v) => updateFormData('clinicalMeasurements', 'inflammationGrade', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Grade 0</SelectItem>
+                    <SelectItem value="1+">Grade 1+</SelectItem>
+                    <SelectItem value="2+">Grade 2+</SelectItem>
+                    <SelectItem value="3+">Grade 3+</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Corneal Edema Severity</Label>
+                <Select
+                  value={formData.clinicalMeasurements?.cornealEdemaSeverity}
+                  onValueChange={(v) => updateFormData('clinicalMeasurements', 'cornealEdemaSeverity', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="mild">Mild</SelectItem>
+                    <SelectItem value="moderate">Moderate</SelectItem>
+                    <SelectItem value="severe">Severe</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label>Time Since Surgery</Label>
+                <div className="flex gap-3">
+                  <Input
+                    type="number"
+                    value={formData.timeSinceSurgery?.value}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        timeSinceSurgery: { ...prev.timeSinceSurgery!, value: parseInt(e.target.value) || 0 },
+                      }))
+                    }
+                    min={0}
+                    className="flex-1"
+                  />
+                  <Select
+                    value={formData.timeSinceSurgery?.unit}
+                    onValueChange={(v) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        timeSinceSurgery: { ...prev.timeSinceSurgery!, unit: v as 'hours' | 'days' },
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hours">Hours</SelectItem>
+                      <SelectItem value="days">Days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
           </div>
         );
@@ -576,6 +658,50 @@ export default function PatientAssessment() {
       case 6: // Media Upload
         return (
           <div className="space-y-6">
+            {/* Compliance & Follow-Up Trend */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-secondary/30 rounded-lg">
+              <div className="space-y-3">
+                <Label className="font-medium">Patient Compliance Score</Label>
+                <RadioGroup
+                  value={formData.complianceScore}
+                  onValueChange={(v) =>
+                    setFormData((prev) => ({ ...prev, complianceScore: v as 'good' | 'moderate' | 'poor' }))
+                  }
+                  className="flex flex-wrap gap-4"
+                >
+                  {(['good', 'moderate', 'poor'] as const).map((level) => (
+                    <div key={level} className="flex items-center space-x-2">
+                      <RadioGroupItem value={level} id={`compliance-${level}`} />
+                      <Label htmlFor={`compliance-${level}`} className="capitalize">{level}</Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+                {formData.complianceScore === 'poor' && (
+                  <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
+                    ⚠️ Low compliance can worsen outcomes even in otherwise low-risk patients.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <Label className="font-medium">Follow-Up Trend</Label>
+                <RadioGroup
+                  value={formData.followUpTrend}
+                  onValueChange={(v) =>
+                    setFormData((prev) => ({ ...prev, followUpTrend: v as 'improving' | 'stable' | 'worsening' }))
+                  }
+                  className="flex flex-wrap gap-4"
+                >
+                  {(['improving', 'stable', 'worsening'] as const).map((trend) => (
+                    <div key={trend} className="flex items-center space-x-2">
+                      <RadioGroupItem value={trend} id={`trend-${trend}`} />
+                      <Label htmlFor={`trend-${trend}`} className="capitalize">{trend}</Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+            </div>
+
             <p className="text-muted-foreground">
               Upload post-operative eye images for AI visual analysis. The system will analyze
               for signs of redness, edema, discharge patterns, and other visual abnormalities.
