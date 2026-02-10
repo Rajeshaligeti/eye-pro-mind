@@ -72,7 +72,7 @@ export default function PatientAssessment() {
       complexity: 'routine',
       duration: 30,
       surgeonExperience: 'experienced',
-      intraoperativeIssues: false,
+      intraoperativeComplicationType: 'none',
     },
     postOperativeSymptoms: {
       painLevel: 2,
@@ -87,7 +87,13 @@ export default function PatientAssessment() {
       cornealClarity: 'clear',
       woundIntegrity: 'intact',
       anteriorChamberReaction: 'trace',
+      inflammationGrade: '0',
+      cornealEdemaSeverity: 'none',
     },
+    complianceScore: 'good',
+    timeSinceSurgery: { value: 1, unit: 'days' },
+    followUpTrend: 'stable',
+    doctorRiskOverride: 'accept',
   });
 
   const updateFormData = (section: string, field: string, value: unknown) => {
