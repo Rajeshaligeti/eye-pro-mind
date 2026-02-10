@@ -433,17 +433,22 @@ export default function PatientAssessment() {
               </div>
             </div>
             
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="intraoperativeIssues"
-                checked={formData.surgeryDetails?.intraoperativeIssues}
-                onCheckedChange={(checked) =>
-                  updateFormData('surgeryDetails', 'intraoperativeIssues', checked)
-                }
-              />
-              <Label htmlFor="intraoperativeIssues">
-                Intraoperative Issues Encountered
-              </Label>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Intraoperative Complication Type</Label>
+              <Select
+                value={formData.surgeryDetails?.intraoperativeComplicationType}
+                onValueChange={(v) => updateFormData('surgeryDetails', 'intraoperativeComplicationType', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="posterior-capsule-rupture">Posterior Capsule Rupture</SelectItem>
+                  <SelectItem value="zonular-weakness">Zonular Weakness</SelectItem>
+                  <SelectItem value="vitreous-loss">Vitreous Loss</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         );
