@@ -92,6 +92,13 @@ export interface PatientAssessment {
   timeSinceSurgery: { value: number; unit: 'hours' | 'days' };
   followUpTrend: 'improving' | 'stable' | 'worsening';
   doctorRiskOverride: 'increase' | 'decrease' | 'accept';
+  additionalInputs?: AdditionalClinicalInputs;
+}
+
+export interface AdditionalClinicalInputs {
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  bloodSugar?: number;
 }
 
 export interface TemporalDataPoint {

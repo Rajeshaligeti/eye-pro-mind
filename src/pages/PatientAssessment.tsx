@@ -27,8 +27,15 @@ import {
   Upload,
   Camera,
   FileImage,
+  FileText,
+  PenLine,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import type { PatientAssessment } from '@/types/patient';
+
+type InputMethod = 'none' | 'upload' | 'manual';
 
 const steps = [
   { id: 'demographics', label: 'Demographics', icon: User },
@@ -42,6 +49,9 @@ const steps = [
 
 export default function PatientAssessment() {
   const navigate = useNavigate();
+  const [inputMethod, setInputMethod] = useState<InputMethod>('none');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionNotes, setExtractionNotes] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   
@@ -94,6 +104,7 @@ export default function PatientAssessment() {
     timeSinceSurgery: { value: 1, unit: 'days' },
     followUpTrend: 'stable',
     doctorRiskOverride: 'accept',
+    additionalInputs: {},
   });
 
   const updateFormData = (section: string, field: string, value: unknown) => {
@@ -106,11 +117,98 @@ export default function PatientAssessment() {
     }));
   };
 
+  const handleReportUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isPdf = file.type === 'application/pdf';
+    const isImage = file.type.startsWith('image/');
+    if (!isPdf && !isImage) {
+      toast.error('Unsupported file type', { description: 'Please upload a PDF or image file.' });
+      return;
+    }
+
+    setIsExtracting(true);
+    setExtractionNotes(null);
+
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const { data, error } = await supabase.functions.invoke('extract-report-data', {
+        body: { fileBase64: base64, fileType: isPdf ? 'pdf' : 'image' },
+      });
+
+      if (error) throw new Error(error.message);
+
+      // Merge extracted values into formData (only non-null values)
+      setFormData((prev) => {
+        const merged = { ...prev };
+        const sections = ['demographics', 'systemicHistory', 'ocularHistory', 'surgeryDetails', 'postOperativeSymptoms', 'clinicalMeasurements'] as const;
+        
+        for (const section of sections) {
+          if (data[section]) {
+            const existing = (merged[section] || {}) as Record<string, unknown>;
+            const extracted = data[section] as Record<string, unknown>;
+            for (const [key, val] of Object.entries(extracted)) {
+              if (val !== null && val !== undefined) {
+                existing[key] = val;
+              }
+            }
+            (merged as Record<string, unknown>)[section] = existing;
+          }
+        }
+
+        // Top-level fields
+        if (data.complianceScore) merged.complianceScore = data.complianceScore;
+        if (data.followUpTrend) merged.followUpTrend = data.followUpTrend;
+        if (data.timeSinceSurgery?.value != null && data.timeSinceSurgery?.unit) {
+          merged.timeSinceSurgery = data.timeSinceSurgery;
+        }
+
+        // Additional inputs (BP/BS)
+        if (data.additionalInputs) {
+          const ai = data.additionalInputs;
+          merged.additionalInputs = {
+            ...merged.additionalInputs,
+            ...(ai.bloodPressureSystolic != null ? { bloodPressureSystolic: ai.bloodPressureSystolic } : {}),
+            ...(ai.bloodPressureDiastolic != null ? { bloodPressureDiastolic: ai.bloodPressureDiastolic } : {}),
+            ...(ai.bloodSugar != null ? { bloodSugar: ai.bloodSugar } : {}),
+          };
+        }
+
+        return merged;
+      });
+
+      const confidence = data.extractionConfidence ?? 0;
+      const notes = data.extractionNotes || '';
+      setExtractionNotes(notes);
+
+      toast.success(`Report extracted (${confidence}% confidence)`, {
+        description: 'Review and complete any missing fields below.',
+      });
+
+      // Move to step 0 so user can review
+      setCurrentStep(0);
+    } catch (err) {
+      console.error('Extraction failed:', err);
+      toast.error('Report extraction failed', {
+        description: 'You can still enter data manually below.',
+      });
+      setCurrentStep(0);
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep((prev) => prev + 1);
     } else {
-      // Store form data and navigate to results
       sessionStorage.setItem('patientAssessment', JSON.stringify(formData));
       sessionStorage.setItem('uploadedImage', uploadedImage || '');
       navigate('/results');
@@ -134,13 +232,205 @@ export default function PatientAssessment() {
     }
   };
 
+  // Input method selection screen
+  if (inputMethod === 'none') {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <div className="mb-8">
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-2">
+            Patient Risk Assessment
+          </h1>
+          <p className="text-muted-foreground">
+            Choose how you'd like to enter clinical data.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <button onClick={() => setInputMethod('upload')} className="text-left">
+            <MedicalCard className="cursor-pointer hover:border-primary/50 transition-colors h-full">
+              <div className="flex flex-col items-center text-center space-y-4 py-6">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <FileText className="w-8 h-8 text-primary" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">Upload Medical Report</h3>
+                <p className="text-sm text-muted-foreground">
+                  Upload a PDF or image-based post-operative report. AI will extract clinical values and pre-fill the form.
+                </p>
+                <div className="text-xs text-muted-foreground">Supports PDF, JPEG, PNG</div>
+              </div>
+            </MedicalCard>
+          </button>
+
+          <button onClick={() => setInputMethod('manual')} className="text-left">
+            <MedicalCard className="cursor-pointer hover:border-primary/50 transition-colors h-full">
+              <div className="flex flex-col items-center text-center space-y-4 py-6">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <PenLine className="w-8 h-8 text-primary" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">Manual Data Entry</h3>
+                <p className="text-sm text-muted-foreground">
+                  Enter all clinical data manually using the step-by-step assessment form.
+                </p>
+                <div className="text-xs text-muted-foreground">7 assessment steps</div>
+              </div>
+            </MedicalCard>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Report upload screen (before entering form steps)
+  if (inputMethod === 'upload' && isExtracting) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-4xl">
+        <div className="text-center space-y-6">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto animate-pulse">
+            <Loader2 className="w-10 h-10 text-primary animate-spin" />
+          </div>
+          <h2 className="text-2xl font-bold text-foreground">Extracting Clinical Data...</h2>
+          <p className="text-muted-foreground max-w-md mx-auto">
+            AI is reading your medical report and extracting clinical values. This may take a few seconds.
+          </p>
+          <Progress value={50} className="h-2 max-w-xs mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  if (inputMethod === 'upload' && currentStep === 0 && !extractionNotes && !isExtracting) {
+    // Show upload area first before extraction
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <div className="mb-8">
+          <Button variant="outline" onClick={() => setInputMethod('none')} className="mb-4">
+            <ArrowLeft className="w-4 h-4" /> Back to Selection
+          </Button>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-2">
+            Upload Medical Report
+          </h1>
+          <p className="text-muted-foreground">
+            Upload a post-operative report and AI will extract available clinical data.
+          </p>
+        </div>
+
+        <MedicalCard title="Upload Report" icon={<FileText className="w-5 h-5" />}>
+          <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors">
+            <div className="space-y-4">
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                <Upload className="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium text-foreground">Drag & drop your report here</p>
+                <p className="text-sm text-muted-foreground mt-1">or click to browse files</p>
+              </div>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={handleReportUpload}
+                className="hidden"
+                id="report-upload"
+              />
+              <Button asChild variant="outline">
+                <label htmlFor="report-upload" className="cursor-pointer">
+                  <FileImage className="w-4 h-4 mr-2" />
+                  Browse Files
+                </label>
+              </Button>
+              <p className="text-xs text-muted-foreground">Supported: PDF, JPEG, PNG</p>
+            </div>
+          </div>
+
+          <div className="mt-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              Or{' '}
+              <button
+                className="text-primary underline hover:text-primary/80"
+                onClick={() => { setInputMethod('manual'); setCurrentStep(0); }}
+              >
+                skip and enter data manually
+              </button>
+            </p>
+          </div>
+        </MedicalCard>
+      </div>
+    );
+  }
+
   const progress = ((currentStep + 1) / steps.length) * 100;
+
+  const renderAdditionalInputs = () => (
+    <div className="space-y-4 p-4 bg-secondary/30 rounded-lg mt-6">
+      <h4 className="text-sm font-semibold text-foreground">Additional Clinical Inputs (Optional)</h4>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="space-y-2">
+          <Label>Blood Pressure - Systolic (mmHg)</Label>
+          <Input
+            type="number"
+            placeholder="e.g. 120"
+            value={formData.additionalInputs?.bloodPressureSystolic ?? ''}
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value) : undefined;
+              setFormData((prev) => ({
+                ...prev,
+                additionalInputs: { ...prev.additionalInputs, bloodPressureSystolic: val },
+              }));
+            }}
+            min={60}
+            max={250}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Blood Pressure - Diastolic (mmHg)</Label>
+          <Input
+            type="number"
+            placeholder="e.g. 80"
+            value={formData.additionalInputs?.bloodPressureDiastolic ?? ''}
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value) : undefined;
+              setFormData((prev) => ({
+                ...prev,
+                additionalInputs: { ...prev.additionalInputs, bloodPressureDiastolic: val },
+              }));
+            }}
+            min={30}
+            max={150}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Blood Sugar (mg/dL)</Label>
+          <Input
+            type="number"
+            placeholder="e.g. 110"
+            value={formData.additionalInputs?.bloodSugar ?? ''}
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value) : undefined;
+              setFormData((prev) => ({
+                ...prev,
+                additionalInputs: { ...prev.additionalInputs, bloodSugar: val },
+              }));
+            }}
+            min={30}
+            max={600}
+          />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        These are supplementary inputs and will not replace any existing clinical parameters.
+      </p>
+    </div>
+  );
 
   const renderStepContent = () => {
     switch (currentStep) {
       case 0: // Demographics
         return (
           <div className="space-y-6">
+            {extractionNotes && (
+              <div className="p-3 bg-primary/10 border border-primary/30 rounded-lg text-sm text-primary">
+                📄 <strong>Report extracted.</strong> {extractionNotes} — Review and correct values below.
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label>Patient Age</Label>
@@ -652,6 +942,9 @@ export default function PatientAssessment() {
                 </div>
               </div>
             </div>
+
+            {/* Additional Clinical Inputs - BP & BS */}
+            {renderAdditionalInputs()}
           </div>
         );
 
@@ -779,7 +1072,9 @@ export default function PatientAssessment() {
           Patient Risk Assessment
         </h1>
         <p className="text-muted-foreground">
-          Complete the multi-layer assessment for comprehensive complication risk analysis.
+          {inputMethod === 'upload'
+            ? 'Review extracted data and complete any missing fields.'
+            : 'Complete the multi-layer assessment for comprehensive complication risk analysis.'}
         </p>
       </div>
 
@@ -839,11 +1134,10 @@ export default function PatientAssessment() {
       <div className="flex items-center justify-between mt-6">
         <Button
           variant="outline"
-          onClick={handleBack}
-          disabled={currentStep === 0}
+          onClick={currentStep === 0 ? () => setInputMethod('none') : handleBack}
         >
           <ArrowLeft className="w-4 h-4" />
-          Back
+          {currentStep === 0 ? 'Change Method' : 'Back'}
         </Button>
         
         <Button variant="medical" onClick={handleNext}>
