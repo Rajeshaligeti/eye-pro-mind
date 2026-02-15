@@ -81,17 +81,41 @@ export default function Reports() {
     return matchesSearch && matchesRisk;
   });
 
-  const handleDownload = (reportId: string) => {
-    // Mock download
+  const handleDownload = async (reportId: string) => {
     const report = mockReports.find((r) => r.id === reportId);
-    if (report) {
-      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${reportId}-report.json`;
-      a.click();
-    }
+    if (!report) return;
+
+    const { default: jsPDF } = await import('jspdf');
+    const doc = new jsPDF();
+
+    // Header
+    doc.setFontSize(18);
+    doc.text('Assessment Report', 20, 20);
+
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text('This system assists clinical decision-making and does not replace physician judgment.', 20, 28);
+
+    // Report details
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    const y = 42;
+    const lines = [
+      `Report ID: ${report.id}`,
+      `Patient ID: ${report.patientId}`,
+      `Date: ${new Date(report.date).toLocaleDateString()}`,
+      `Time: ${new Date(report.date).toLocaleTimeString()}`,
+      `Surgery Type: ${report.surgeryType}`,
+      `Risk Score: ${report.riskScore}%`,
+      `Risk Level: ${report.riskLevel.toUpperCase()}`,
+      `Status: ${report.status === 'confirmed' ? 'Clinician Confirmed' : 'Pending Review'}`,
+    ];
+
+    lines.forEach((line, i) => {
+      doc.text(line, 20, y + i * 8);
+    });
+
+    doc.save(`${reportId}-report.pdf`);
   };
 
   return (
