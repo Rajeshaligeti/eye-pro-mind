@@ -148,23 +148,46 @@ export default function AssessmentResults() {
     setTemporalData(temporal);
   }, [doctorOverride]);
 
-  const handleExport = () => {
-    const reportData = {
-      timestamp: new Date().toISOString(),
-      assessment,
-      riskAssessment,
-      mediaAnalysis,
-      recommendations,
-      humanConfirmed,
-      doctorOverride,
-    };
-    
-    const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `patient-risk-report-${Date.now()}.json`;
-    a.click();
+  const handleExport = async () => {
+    const element = document.getElementById('risk-assessment-content');
+    if (!element) return;
+
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const { default: jsPDF } = await import('jspdf');
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgData = canvas.toDataURL('image/png');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const finalW = imgWidth * ratio;
+      const finalH = imgHeight * ratio;
+
+      pdf.addImage(imgData, 'PNG', (pdfWidth - finalW) / 2, 0, finalW, finalH);
+
+      // Add extra pages if content is taller than one page
+      let heightLeft = finalH - pdfHeight;
+      let position = -pdfHeight;
+      while (heightLeft > 0) {
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', (pdfWidth - finalW) / 2, position, finalW, finalH);
+        heightLeft -= pdfHeight;
+        position -= pdfHeight;
+      }
+
+      pdf.save(`patient-risk-report-${Date.now()}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    }
   };
 
   if (isLoading) {
@@ -198,7 +221,7 @@ export default function AssessmentResults() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <div id="risk-assessment-content" className="container mx-auto px-4 py-8 max-w-6xl">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
